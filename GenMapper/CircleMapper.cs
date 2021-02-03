@@ -10,6 +10,9 @@ namespace GenMapper
 
         public static void DrawMap(Graphics graphics, Features features, Point center, in MapSettings settings)
         {
+            if (graphics == null)
+                throw new ArgumentNullException("graphics");
+            
             DrawFeatureRing(graphics, features, center, settings);
             DrawMarkerRing(graphics, features.BasePositions, center, settings);
             DrawOrganismDescription(graphics, features, center, 
@@ -18,9 +21,6 @@ namespace GenMapper
 
         private static void DrawFeatureRing(Graphics graphics, Features features, Point center, in MapSettings settings)
         {
-            if (graphics == null)
-                throw new ArgumentNullException("graphics");
-
             double basePositionsFloat = features.BasePositions;
             double featureInnerRadius = settings.FeatureRingRadius - settings.FeatureWidth;
             double featureOuterRadius = settings.FeatureRingRadius + settings.FeatureWidth;
