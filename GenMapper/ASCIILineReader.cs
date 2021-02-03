@@ -1,9 +1,12 @@
 ﻿using System;
 using System.IO;
-using System.Runtime.CompilerServices;
 
 namespace GenMapper
 {
+    // Utility class for reading ASCII encoded text from a stream.
+    // Parsing ASCII text using ASCIILineReader may offer better performance
+    // than parsing text using .NET's StreamReader.
+
     public class ASCIILineReader
     {
         private const int DEFAULT_BUFFER_SIZE = 4096;
@@ -35,13 +38,15 @@ namespace GenMapper
 
         // Reads as many chars into the span as it can accommodate or until a newline or EOF is encountered, 
         // and returns the number of chars read. Does not consume the newline char(s).
-        public int ReadChars(Span<char> span)
+        public int ReadChars(Span<char> buffer)
         {
             int charsRead = 0;
-            while (charsRead < span.Length)
+            while (charsRead < buffer.Length)
             {
                 if (_byteBufferPos < _byteBufferSize)
                 {
+                    // Note that this may give us garbage values if the file is not actually 
+                    // encoded in ASCII . . .
                     char ch = unchecked((char)_byteBuffer[_byteBufferPos]);
 
                     if (ch == '\r' || ch == '\n')
@@ -49,7 +54,7 @@ namespace GenMapper
                     else
                     {
                         _byteBufferPos++;
-                        span[charsRead++] = ch;
+                        buffer[charsRead++] = ch;
                     }
                 }
                 else
@@ -62,12 +67,6 @@ namespace GenMapper
                 }
             }
             return charsRead;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool ReadCharsExact(Span<char> span)
-        {
-            return span.Length == ReadChars(span);
         }
 
         // Skips over all consecutive occurences of the specified char, and returns the number of chars skipped.
@@ -99,7 +98,6 @@ namespace GenMapper
             // Platform-specific newlines: \n - UNIX  \r\n - DOS  \r - Mac
             // Indicates whether the previously read character was '\r' (carriage return).
             bool previousCharCR = false;
-
             do
             {
                 while (_byteBufferPos < _byteBufferSize)

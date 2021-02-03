@@ -6,68 +6,86 @@ namespace GenMapper
 {
     public static class GenbankReader
     {
+        // *Most* Genbank files have a line length not exceeding 80 chars.
         private const int LINE_LENGTH = 80;
 
-        public static FeatureList? Read(ASCIILineReader lineReader)
+        // Feature keys are indented by five spaces.
+        private const int INDENT_KEY = 5;
+
+        // Feature qualifiers are indented by 21 spaces.
+        private const int INDENT_QUALIFIER = 21;
+
+        // Regardless of whether a particular line contains a key or a qualifier,
+        // the actual content for that line will begin at position 21. Thus,
+        // the maximum possible length of a feature key is 15 chars.
+        private const int KEY_LENGTH = INDENT_QUALIFIER - INDENT_KEY;
+
+        // Reads the feature table of a Genbank file, returning null if either no feature table
+        // was found, or a feature table was found, but contained no source key.
+        public static Features? ReadFeatures(ASCIILineReader lineReader)
         {
             if (lineReader == null)
                 throw new ArgumentNullException("lineReader");
 
-            char[] buffer = new char[LINE_LENGTH - 6];
-            var featuresSpan = new Span<char>(buffer, 0, 8);
+            char[] buffer = new char[LINE_LENGTH - INDENT_KEY];
 
-            // Read until we encounter the FEATURES keyword.
-            while (!lineReader.ReadCharsExact(featuresSpan) || !featuresSpan.StartsWith("FEATURES"))
+            // The feature table begins with a line starting with the keyword FEATURES. 
+            // Read the first eight characters of each line until EOF or the keyword is found.
+            var temp = new Span<char>(buffer, 0, 8);
+            while (lineReader.ReadChars(temp) < 8 || !temp.StartsWith("FEATURES"))
             {
-                // Early termination in case we reach EOF.
                 if (!lineReader.NextLine())
                     return null;
             }
 
-            FeatureList? featureList = null;
+            // Begin parsing the actual feature table.
+
+            Features? features = null;
             FeatureLocation? location = null;
-            bool source = false; // flag indicating whether the current scope is part of the source key
+
+            // Flag indicating whether the current line is an entry corresponding to the source key.
+            bool source = false;
 
             while (lineReader.NextLine())
             {
                 int indentLength = lineReader.SkipConsecutive(' ');
-                if (indentLength == 0)
-                    return featureList;
 
-                // Indent of five characters - potentially a feature key.
-                if (indentLength == 5)
+                // Indent of zero - we've reached the end of the feature table.
+                if (indentLength == 0)
+                    return features;
+
+                // Indent of INDENT_KEY characters - potentially a feature key.
+                if (indentLength == INDENT_KEY)
                 {
                     int charsRead = lineReader.ReadChars(buffer);
-
-                    // Since the feature location entry starts at position 21, we must have read
-                    // at least 21 - 5 = 16 chars.
-                    if (charsRead < 16)
+                    if (charsRead < KEY_LENGTH)
                         continue;
 
-                    location = ParseLocation(buffer, 16, charsRead - 16);
+                    location = ParseLocation(buffer, KEY_LENGTH, charsRead - KEY_LENGTH);
                     source = location.HasValue && MemoryExtensions.StartsWith<char>(buffer, "source");
                 }
-                else if (indentLength == 21 && location.HasValue) // Indent of 21 characters - potentially a feature qualifier.
+                // Indent of INDENT_QUALIFIER characters - potentially a feature qualifier.
+                else if (indentLength == INDENT_QUALIFIER && location.HasValue)
                 {
                     int charsRead = lineReader.ReadChars(buffer);
                     if (source)
                     {
-                        if (!featureList.HasValue && charsRead > 10 && MemoryExtensions.StartsWith<char>(buffer, "/organism="))
-                            featureList = new FeatureList(ParseQuotation(buffer, 10, charsRead - 10), location.Value.End);
+                        if (!features.HasValue && charsRead > 10 && MemoryExtensions.StartsWith<char>(buffer, "/organism="))
+                            features = new Features(ParseQuotation(buffer, 10, charsRead - 10), location.Value.End);
                     }
-                    else if (featureList.HasValue && charsRead > 6 && MemoryExtensions.StartsWith<char>(buffer, "/gene="))
+                    else if (features.HasValue && charsRead > 6 && MemoryExtensions.StartsWith<char>(buffer, "/gene="))
                     {
                         string gene = ParseQuotation(buffer, 6, charsRead - 6);
                         if (gene != null)
                         {
-                            Dictionary<string, FeatureLocation> locations = featureList.Value.Locations;
+                            Dictionary<string, FeatureLocation> locations = features.Value.Locations;
                             if (!locations.ContainsKey(gene))
                                 locations.Add(gene, location.Value);
                         }
                     }
                 }
             }
-            return featureList;
+            return features;
         }
         
         // Helper method to parse feature locations.
@@ -100,7 +118,7 @@ namespace GenMapper
             while (index < end - 3 && char.IsDigit(array[index]))
                 index++;
 
-            // Attempt to parse the first set of digits as a positive int.
+            // Attempt to parse the first set of digits as a uint.
             var bpSpan = new ReadOnlySpan<char>(array, startIndex, index - startIndex);
             if (!uint.TryParse(bpSpan, NumberStyles.None, null, out uint rangeStart)) // could result in problems with different cultures?
                 return null;
@@ -118,13 +136,9 @@ namespace GenMapper
             while (index < end && char.IsDigit(array[index]))
                 index++;
 
-            // Attempt to parse the second set of digits as a positive int.
+            // Attempt to parse the second set of digits as a uint.
             bpSpan = new ReadOnlySpan<char>(array, startIndex, index - startIndex);
             if (!uint.TryParse(bpSpan, NumberStyles.None, null, out uint rangeEnd))
-                return null;
-
-            // Verify that the range is valid.
-            if (rangeStart < 1 || rangeEnd < 1 || rangeStart > rangeEnd)
                 return null;
 
             return new FeatureLocation(rangeStart, rangeEnd, complement);

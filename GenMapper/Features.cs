@@ -2,13 +2,13 @@
 
 namespace GenMapper
 {
-    public readonly struct FeatureList
+    public readonly struct Features
     {
         public readonly string Organism;
         public readonly uint BasePositions;
         public readonly Dictionary<string, FeatureLocation> Locations;
 
-        public FeatureList(string organism, uint basePositions)
+        public Features(string organism, uint basePositions)
         {
             Organism = organism;
             BasePositions = basePositions;
